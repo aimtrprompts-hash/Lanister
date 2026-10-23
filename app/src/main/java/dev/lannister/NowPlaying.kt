@@ -39,6 +39,22 @@ class NowPlaying(context: Context, private val onChange: (title: String?, artist
         }
     }
 
+    // ---- transport controls, for the home screen widget. Only what the app's own session says it supports. ----
+
+    private fun actions(): Long = current?.playbackState?.actions ?: 0L
+    private fun isPlaying() = current?.playbackState?.state == PlaybackState.STATE_PLAYING
+
+    val canPrevious get() = actions() and PlaybackState.ACTION_SKIP_TO_PREVIOUS != 0L
+    val canNext get() = actions() and PlaybackState.ACTION_SKIP_TO_NEXT != 0L
+    val canToggle get() = actions() and (PlaybackState.ACTION_PLAY or PlaybackState.ACTION_PAUSE or PlaybackState.ACTION_PLAY_PAUSE) != 0L
+
+    fun previous() { if (canPrevious) current?.transportControls?.skipToPrevious() }
+    fun next() { if (canNext) current?.transportControls?.skipToNext() }
+    fun toggle() {
+        val c = current ?: return
+        if (isPlaying()) c.transportControls.pause() else c.transportControls.play()
+    }
+
     /** False when notification access has not been turned on yet. */
     fun start(): Boolean {
         if (started) return true

@@ -68,6 +68,7 @@ import android.widget.GridLayout
 import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.PopupWindow
+import android.widget.TextClock
 import android.widget.ProgressBar
 import android.widget.TextView
 import android.widget.Toast
@@ -84,7 +85,7 @@ import java.util.concurrent.Executors
 import org.json.JSONObject
 
 /** Light/dark from the launcher's theme setting; shared with the Gallery screensaver. */
-internal fun prefersDark(prefs: SharedPreferences) = when (prefs.getString("theme", "light")) {
+internal fun prefersDark(prefs: SharedPreferences) = if (Nairobi.auto(prefs)) Nairobi.isNight(prefs) else when (prefs.getString("theme", "light")) {
     "dark" -> true
     "auto" -> Calendar.getInstance().get(Calendar.HOUR_OF_DAY) !in 7..18
     else -> false
@@ -199,6 +200,7 @@ class MainActivity : Activity() {
     private lateinit var allApps: View
     private lateinit var allAppsGrid: GridLayout
     private lateinit var wifi: ImageView
+    private lateinit var player: PlayerWidget
 
     private val packageReceiver = object : BroadcastReceiver() {
         override fun onReceive(c: Context, i: Intent) {
@@ -232,7 +234,11 @@ class MainActivity : Activity() {
         allApps = findViewById(R.id.allApps)
         allAppsGrid = findViewById(R.id.allAppsGrid)
         wifi = findViewById(R.id.wifi)
+        player = PlayerWidget(this, prefs) { requestPlayerAccess() }
+        val dateFormat = "EEE d MMM '· ${getString(R.string.nairobi_time_suffix)}'" // the date is Nairobi's, like the clock
+        findViewById<TextClock>(R.id.date).apply { format12Hour = dateFormat; format24Hour = dateFormat }
         applyTheme()
+        updateGreeting(false)
         loadWallpaper()
 
         // Top bar: network, All apps, Android settings, launcher settings. Round, lit on focus.
@@ -255,7 +261,9 @@ class MainActivity : Activity() {
         }
         if (prefs.getBoolean("reopen_settings", false)) {
             prefs.edit().remove("reopen_settings").apply()
-            ui.post { openLauncherSettings(R.string.theme) }
+            val at = prefs.getInt("reopen_at", R.string.theme)
+            prefs.edit().remove("reopen_at").apply()
+            ui.post { openLauncherSettings(at) }
         } else if (!homeServiceOn() && !prefs.getBoolean("setup_shown", false)) {
             // Fresh install: walk through making Home land on Lannister, the one step that has to happen by hand.
             prefs.edit().putBoolean("setup_shown", true).apply()
@@ -288,7 +296,7 @@ class MainActivity : Activity() {
         HomeWatch.start(this) // Fire TV: reads the system log for Home presses (needs the adb grant of READ_LOGS)
         homeSetupResumed()
         if (wantDark() != dark) {
-            recreate()
+            recreateThemed()
             return
         }
         // Only rebuild what changed, so focus stays where it was when returning from an app.
@@ -302,12 +310,65 @@ class MainActivity : Activity() {
         ui.post(wallpaperTick)
         HomeOverride.stockHomeAllowed = false // we are on screen again: the stock home is covered again
         if (prefs.getBoolean("ss_now", true)) NowPlaying.enable(this)
+        updateGreeting(false)
+        ui.removeCallbacks(clockTick)
+        ui.postDelayed(clockTick, 20_000L)
+        player.resume()
+    }
+
+    /** The greeting follows Nairobi time and is re-checked while the home screen stays open. */
+    private val clockTick = object : Runnable {
+        override fun run() {
+            updateGreeting(true)
+            ui.postDelayed(this, 20_000L)
+        }
+    }
+
+    private fun updateGreeting(animate: Boolean) {
+        val v = findViewById<TextView>(R.id.greeting)
+        if (!prefs.getBoolean("greeting", true)) {
+            v.visibility = View.GONE
+            return
+        }
+        v.visibility = View.VISIBLE
+        val text = getString(when (Nairobi.part(Nairobi.minutesNow())) {
+            Nairobi.Part.MORNING -> R.string.greet_morning
+            Nairobi.Part.AFTERNOON -> R.string.greet_afternoon
+            Nairobi.Part.EVENING -> R.string.greet_evening
+            Nairobi.Part.NIGHT -> R.string.greet_night
+        }, getString(R.string.greeting_name))
+        if (v.text.toString() == text) return
+        if (animate && v.text.isNotEmpty() && v.isShown) {
+            v.animate().alpha(0f).setDuration(200).withEndAction {
+                v.text = text
+                v.animate().alpha(1f).setDuration(300).start()
+            }.start()
+        } else {
+            v.text = text
+        }
+    }
+
+    /** Turns music access on from the widget; same steps as the screensaver's Now playing setting. */
+    private fun requestPlayerAccess() {
+        prefs.edit().putBoolean("ss_now", true).apply()
+        if (!NowPlaying.enable(this)) {
+            Toast.makeText(this, getString(R.string.now_playing_needs_adb), Toast.LENGTH_LONG).show()
+            openSettings("android.settings.ACTION_NOTIFICATION_LISTENER_SETTINGS")
+        } else {
+            player.resume()
+        }
+    }
+
+    /** Recreate for a theme change. With Nairobi day/night wallpaper on, remember the old picture so the new screen fades from it. */
+    private fun recreateThemed() {
+        if (Nairobi.auto(prefs)) prefs.edit().putString("nbo_from", currentWallpaper(dark)).apply()
+        recreate()
     }
 
     /** Auto theme flips at 7:00 and 19:00 even while the home screen just sits there. */
     private val themeTick = object : Runnable {
         override fun run() {
-            if (wantDark() != dark) recreate() else ui.postDelayed(this, 60_000L)
+            if (wantDark() != dark) recreateThemed() else ui.postDelayed(this, 60_000L)
         }
     }
 
@@ -330,6 +391,8 @@ class MainActivity : Activity() {
         ui.removeCallbacks(weatherTick)
         ui.removeCallbacks(themeTick)
         ui.removeCallbacks(wallpaperTick)
+        ui.removeCallbacks(clockTick)
+        player.pause()
         if (editing) endEdit()
         super.onPause()
     }
@@ -640,6 +703,11 @@ class MainActivity : Activity() {
             findViewById<TextView>(id).setTextColor(fg)
         }
         wifi.setColorFilter(fg)
+        findViewById<TextView>(R.id.greeting).setTextColor(fg)
+        // A soft shadow keeps the top text readable over bright and busy parts of a photo.
+        val shadow = if (dark) 0x99000000.toInt() else 0x66FFFFFF
+        for (id in intArrayOf(R.id.greeting, R.id.clock, R.id.date, R.id.weather)) findViewById<TextView>(id).setShadowLayer(8f, 0f, 1f, shadow)
+        player.recolor(fg, if (dark) DARK_CARD_LIT[0] else Color.WHITE)
     }
 
     // ---------- wallpapers ----------
@@ -653,7 +721,8 @@ class MainActivity : Activity() {
 
     /** A plain choice first (just the theme's base colour, no image), then pictures. */
     private fun wallpaperChoices(forDark: Boolean): List<Pair<String, String>> =
-        listOf(plainWallpaper(forDark).let { wallpaperName(it) to it }, wallpaperName(SKY) to SKY) +
+        listOf(plainWallpaper(forDark).let { wallpaperName(it) to it }, wallpaperName(SKY) to SKY,
+            wallpaperName(NBO_DAY) to NBO_DAY, wallpaperName(NBO_NIGHT) to NBO_NIGHT) +
             BUNDLED_WALLPAPERS.keys.map { wallpaperName("res:$it") to "res:$it" } +
             (wallpaperDir()?.listFiles { f -> f.extension.lowercase() in setOf("jpg", "jpeg", "png", "webp") }
                 ?.sortedBy { it.name }?.map { it.nameWithoutExtension to "file:${it.name}" } ?: emptyList()) +
@@ -662,7 +731,8 @@ class MainActivity : Activity() {
     // Light gets a soft white (the light ground colour), not #FFFFFF: pure white glares on a TV.
     private fun plainWallpaper(forDark: Boolean) = if (forDark) "plain:Pure black" else "plain:Soft white"
 
-    private fun defaultWallpaper(forDark: Boolean) = if (forDark) "res:Rockies (dusk)" else "res:Rockies (day)"
+    private fun defaultWallpaper(forDark: Boolean) =
+        if (Nairobi.auto(prefs)) (if (forDark) NBO_NIGHT else NBO_DAY) else if (forDark) "res:Rockies (dusk)" else "res:Rockies (day)"
 
     private fun currentWallpaper(forDark: Boolean = dark) =
         prefs.getString(if (forDark) "wp_dark" else "wp_light", null) ?: defaultWallpaper(forDark)
@@ -679,6 +749,8 @@ class MainActivity : Activity() {
     private fun loadWallpaper() {
         val view = findViewById<ImageView>(R.id.wallpaper)
         val choice = currentWallpaper()
+        // Set by recreateThemed(): the picture the previous day/night screen showed, to fade from.
+        val from = prefs.getString("nbo_from", null)?.also { prefs.edit().remove("nbo_from").apply() }
         sky?.visibility = if (choice == SKY) View.VISIBLE else View.GONE
         if (choice == SKY) {
             view.setImageDrawable(null)
@@ -703,8 +775,9 @@ class MainActivity : Activity() {
             } catch (e: Exception) {
                 null
             } ?: decodeWallpaper(fallback)
+            val before = if (from != null && from != choice && view.drawable == null) try { decodeWallpaper(from) } catch (e: Exception) { null } else null
             ui.post {
-                val old = view.drawable
+                val old = view.drawable ?: before?.let { BitmapDrawable(resources, it) }
                 if (old == null || bmp == null) return@post view.setImageBitmap(bmp)
                 // Soft change from one photo to the next; then drop the old one so only one stays in memory.
                 val fade = TransitionDrawable(arrayOf(old, BitmapDrawable(resources, bmp))).apply { isCrossFadeEnabled = true }
@@ -716,6 +789,7 @@ class MainActivity : Activity() {
     }
 
     private fun decodeWallpaper(choice: String): Bitmap? {
+        if (choice.startsWith("nbo:")) return nairobiWallpaper(choice == NBO_NIGHT)
         BUNDLED_WALLPAPERS[choice.removePrefix("res:")]?.let { res ->
             return BitmapFactory.decodeResource(resources, res)
         }
@@ -727,9 +801,27 @@ class MainActivity : Activity() {
             val file = File(wallpaperDir(), choice.removePrefix("file:"))
             fitWallpaper { file.inputStream() }
         } ?: return null
-        // Same fade as the bundled ones: clear above 28% height, into the background colour by 50%.
+        return shade(bmp, ground)
+    }
+
+    /**
+     * The Nairobi wallpaper for day or night: a photo named nairobi_day / nairobi_night if there is one (bundled in
+     * drawable-nodpi, or in the wallpapers folder on the TV), otherwise the drawn skyline. Never anything remote.
+     */
+    private fun nairobiWallpaper(night: Boolean): Bitmap? {
+        val name = if (night) "nairobi_night" else "nairobi_day"
+        val bg = if (night) DARK_BG else 0xFFF3F5F7.toInt()
+        val res = resources.getIdentifier(name, "drawable", packageName)
+        if (res != 0) return BitmapFactory.decodeResource(resources, res, BitmapFactory.Options().apply { inMutable = true })?.let { shade(it, bg) }
+        wallpaperDir()?.listFiles { f -> f.nameWithoutExtension == name && f.extension.lowercase() in setOf("jpg", "jpeg", "png", "webp") }
+            ?.firstOrNull()?.let { f -> return fitWallpaper { f.inputStream() }?.let { shade(it, bg) } }
+        return Nairobi.skyline(night, bg)
+    }
+
+    /** Fade and top veil painted onto a mutable photo bitmap: clear above 28% height, into [groundColor] by 50%. */
+    private fun shade(bmp: Bitmap, groundColor: Int): Bitmap {
         val h = bmp.height.toFloat()
-        val base = ground and 0x00FFFFFF
+        val base = groundColor and 0x00FFFFFF
         if (wallpaperFade()) Canvas(bmp).drawRect(0f, 0f, bmp.width.toFloat(), h, Paint().apply {
             shader = LinearGradient(0f, h * 0.28f, 0f, h * 0.5f, base, base or 0xE6000000.toInt(), Shader.TileMode.CLAMP)
         })
@@ -751,7 +843,8 @@ class MainActivity : Activity() {
         val rows = listOf(page(getString(R.string.add_from_phone)) { uploadWallpaper(forDark) }, page(getString(R.string.choose_from_tv)) { pickFolder(forDark) }) +
             choices.map { (name, choice) -> page(name, if (choice == current) CHOSEN else "") { setWallpaper(forDark, choice); renderSettings(row) } } +
             if (own.isEmpty()) emptyList() else listOf(page(getString(R.string.remove_photo_row)) { removeWallpaper(own, forDark) })
-        showPage(if (forDark) getString(R.string.dark_wallpaper) else getString(R.string.light_wallpaper), rows, 2 + choices.indexOfFirst { it.second == current }) {
+        val nbo = Nairobi.auto(prefs)
+        showPage(if (forDark) getString(if (nbo) R.string.night_wallpaper else R.string.dark_wallpaper) else getString(if (nbo) R.string.day_wallpaper else R.string.light_wallpaper), rows, 2 + choices.indexOfFirst { it.second == current }) {
             renderSettings(row)
         }
     }
@@ -979,11 +1072,36 @@ class MainActivity : Activity() {
         val rowHidden = rowHiddenSet().count { pkg -> apps.any { it.pkg == pkg } }
         val names = rowNames()
         val colour = colourIcons()
+        val nboAuto = Nairobi.auto(prefs)
+        val dayStart = prefs.getInt("nbo_day", Nairobi.DEFAULT_DAY_START)
+        val nightStart = prefs.getInt("nbo_night", Nairobi.DEFAULT_NIGHT_START)
+        // Day/night changed (auto switched, or a transition time moved): the theme may flip, which rebuilds the screen.
+        val nboChanged = { at: Int ->
+            if (wantDark() != dark) {
+                prefs.edit().putBoolean("reopen_settings", true).putInt("reopen_at", at).apply()
+                recreateThemed()
+            } else {
+                loadWallpaper()
+                renderSettings(at)
+            }
+        }
         // Rows with more than two values also step back with Left; two-value rows flip either way.
         val steps = mutableMapOf<Int, (Int) -> Unit>(
             R.string.theme to { d ->
-                prefs.edit().putString("theme", listOf("light", "dark", "auto").step(theme, d)).putBoolean("reopen_settings", true).apply()
-                recreate() // colours are applied once per activity; reopen the panel after
+                if (nboAuto) {
+                    Toast.makeText(this, getString(R.string.nbo_theme_locked), Toast.LENGTH_LONG).show()
+                } else {
+                    prefs.edit().putString("theme", listOf("light", "dark", "auto").step(theme, d)).putBoolean("reopen_settings", true).apply()
+                    recreate() // colours are applied once per activity; reopen the panel after
+                }
+            },
+            R.string.nbo_day_start to { d ->
+                prefs.edit().putInt("nbo_day", (dayStart + 30 * d + 1440) % 1440).apply()
+                nboChanged(R.string.nbo_day_start)
+            },
+            R.string.nbo_night_start to { d ->
+                prefs.edit().putInt("nbo_night", (nightStart + 30 * d + 1440) % 1440).apply()
+                nboChanged(R.string.nbo_night_start)
             },
             R.string.row_position to { d ->
                 prefs.edit().putString("row_align", ROW_ALIGN.keys.toList().step(rowAlign(), d)).apply()
@@ -998,11 +1116,32 @@ class MainActivity : Activity() {
         )
         val rows = linkedMapOf<Int, Triple<String, String, () -> Unit>>(
             R.string.edit_apps_row to Triple(getString(R.string.edit_apps_row), "") { closeLauncherSettings(); startEdit(grab = null) },
-            R.string.theme to Triple(getString(R.string.theme), getString(mapOf("light" to R.string.theme_light, "dark" to R.string.theme_dark, "auto" to R.string.theme_auto)[theme] ?: R.string.theme_light)) {
+            R.string.theme to Triple(getString(R.string.theme), if (nboAuto) getString(R.string.nbo_follows_time) else getString(mapOf("light" to R.string.theme_light, "dark" to R.string.theme_dark, "auto" to R.string.theme_auto)[theme] ?: R.string.theme_light)) {
                 steps[R.string.theme]!!(1)
             },
-            R.string.light_wallpaper to Triple(getString(R.string.light_wallpaper), wallpaperName(currentWallpaper(false))) { pickWallpaper(false) },
-            R.string.dark_wallpaper to Triple(getString(R.string.dark_wallpaper), wallpaperName(currentWallpaper(true))) { pickWallpaper(true) },
+            R.string.light_wallpaper to Triple(getString(if (nboAuto) R.string.day_wallpaper else R.string.light_wallpaper), wallpaperName(currentWallpaper(false))) { pickWallpaper(false) },
+            R.string.dark_wallpaper to Triple(getString(if (nboAuto) R.string.night_wallpaper else R.string.dark_wallpaper), wallpaperName(currentWallpaper(true))) { pickWallpaper(true) },
+            R.string.nbo_auto to Triple(getString(R.string.nbo_auto), toggle(nboAuto)) {
+                prefs.edit().putBoolean("nbo_auto", !nboAuto).apply()
+                nboChanged(R.string.nbo_auto)
+            },
+            R.string.nbo_day_start to Triple(getString(R.string.nbo_day_start), Nairobi.clock(dayStart)) { steps[R.string.nbo_day_start]!!(1) },
+            R.string.nbo_night_start to Triple(getString(R.string.nbo_night_start), Nairobi.clock(nightStart)) { steps[R.string.nbo_night_start]!!(1) },
+            R.string.show_greeting to Triple(getString(R.string.show_greeting), toggle(prefs.getBoolean("greeting", true))) {
+                prefs.edit().putBoolean("greeting", !prefs.getBoolean("greeting", true)).apply()
+                updateGreeting(false)
+                renderSettings(R.string.show_greeting)
+            },
+            R.string.player_widget to Triple(getString(R.string.player_widget), toggle(prefs.getBoolean("player", true))) {
+                prefs.edit().putBoolean("player", !prefs.getBoolean("player", true)).apply()
+                player.applyVisibility()
+                renderSettings(R.string.player_widget)
+            },
+            R.string.player_eq to Triple(getString(R.string.player_eq), toggle(prefs.getBoolean("player_eq", true))) {
+                prefs.edit().putBoolean("player_eq", !prefs.getBoolean("player_eq", true)).apply()
+                player.applyVisibility()
+                renderSettings(R.string.player_eq)
+            },
             R.string.photo_fade to Triple(getString(R.string.photo_fade), toggle(wallpaperFade())) {
                 prefs.edit().putBoolean("wp_fade", !wallpaperFade()).apply()
                 loadWallpaper()
@@ -1093,6 +1232,8 @@ class MainActivity : Activity() {
             Triple(R.string.continue_watching, rows[R.string.cw_apps]!!.second, listOf(R.string.cw_apps, R.string.restore_hidden)),
             Triple(R.string.section_weather, if (weather == "off") on(false) else "${rows[R.string.weather_units]!!.second} · ${rows[R.string.weather_location]!!.second}",
                 listOf(R.string.weather, R.string.weather_units, R.string.weather_location)),
+            Triple(R.string.section_nairobi, "${on(nboAuto)} · ${Nairobi.clock(dayStart)}-${Nairobi.clock(nightStart)}",
+                listOf(R.string.nbo_auto, R.string.nbo_day_start, R.string.nbo_night_start, R.string.show_greeting, R.string.player_widget, R.string.player_eq)),
             Triple(R.string.section_screensaver, rows[R.string.screensaver]!!.second, listOf(R.string.screensaver, R.string.now_playing, R.string.show_location, R.string.test_screensaver, R.string.screensaver_timing)),
             Triple(R.string.section_home, on(homeServiceOn() || homeWatchOn() || isDefaultHome()), listOfNotNull(R.string.setup_home, R.string.home_button, R.string.amazon_home, if (Build.VERSION.SDK_INT >= 29) R.string.default_launcher else null)),
         )
@@ -1716,10 +1857,15 @@ class MainActivity : Activity() {
             else alive(lastCard) ?: (watchRow.getChildAt(0) as? ViewGroup)?.getChildAt(0)
         val top = alive(lastTop) ?: findViewById(R.id.launcherSettings)
         return when {
+            v.parent === findViewById<View>(R.id.player) -> when (key) { // the music widget's buttons
+                KeyEvent.KEYCODE_DPAD_UP -> v
+                KeyEvent.KEYCODE_DPAD_DOWN -> apps ?: cards ?: v
+                else -> null
+            }
             v.parent === wifi.parent -> when (key) { // top bar
                 KeyEvent.KEYCODE_DPAD_DOWN -> apps ?: cards ?: v // the apps row can be empty (all hidden)
                 KeyEvent.KEYCODE_DPAD_UP -> v
-                KeyEvent.KEYCODE_DPAD_LEFT -> if (v.id == R.id.wifi) v else null
+                KeyEvent.KEYCODE_DPAD_LEFT -> if (v.id == R.id.wifi && !player.hasControls()) v else null
                 KeyEvent.KEYCODE_DPAD_RIGHT -> if (v.id == R.id.launcherSettings) v else null
                 else -> null
             }
@@ -2624,7 +2770,10 @@ class MainActivity : Activity() {
         val WALLPAPER_NAMES = mapOf(
             "Rockies (day)" to R.string.wp_rockies_day, "Rockies (dusk)" to R.string.wp_rockies_dusk,
             "Pure black" to R.string.wp_pure_black, "Soft white" to R.string.wp_soft_white, "Live sky" to R.string.wp_live_sky,
+            "Nairobi day" to R.string.wp_nairobi_day, "Nairobi night" to R.string.wp_nairobi_night,
         )
+        const val NBO_DAY = "nbo:Nairobi day"
+        const val NBO_NIGHT = "nbo:Nairobi night"
         val BUNDLED_WALLPAPERS = linkedMapOf(
             "Rockies (day)" to R.drawable.wallpaper,
             "Rockies (dusk)" to R.drawable.wallpaper_dark,

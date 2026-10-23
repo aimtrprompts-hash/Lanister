@@ -16,7 +16,9 @@ its features. Licence: GPL-3.0 (see `LICENSE` and `NOTICE.md`).
   *Sky speed → Fast* plays a whole day in two minutes. It is drawn with code, so it adds no image size.
 - **Replaces the Amazon home screen:** Fire OS 6 does not let apps take the Home key, so Lannister watches the system
   log for the line Fire OS writes when it starts the Amazon home screen, and opens Lannister over it (the same method as
-  the Launcher Manager app). The Amazon home screen may flash for a moment first. To see the Amazon home on purpose, use
+  the Launcher Manager app). The Amazon home screen may flash for a moment first. To open Lannister at once, Lannister talks to the TV's own ADB
+  debugging service on the TV itself (127.0.0.1). The first time, the TV asks "Allow USB debugging?" for Lannister: choose
+  **Always allow**. Without it, Lannister still opens, up to 5 seconds late. To see the Amazon home on purpose, use
   *Lannister settings → Open Amazon home screen*. The older accessibility-service route is kept for other devices.
 - **Fire OS 6 support:** minSdk 25, screen-size fit, apps found under both launcher categories, no features that need
   Android 8 or newer (Continue Watching and HDMI tiles stay empty on a Fire Stick).
@@ -44,6 +46,10 @@ weather.
    adb shell pm grant dev.lannister android.permission.READ_LOGS
    ```
 
+   The first time Home is switched on, the TV asks **Allow USB debugging?** for Lannister. Choose **Always allow**. This
+   lets Lannister open itself instantly through the TV's own debugging connection. Without it, Lannister still opens
+   over the Amazon home, but only after 5 seconds, because Android holds back apps that start in the background.
+
    Then force-stop and reopen Lannister (`adb shell am force-stop dev.lannister`, then open it), so it picks up READ_LOGS.
 
 4. Open Lannister, then in **Lannister settings**:
@@ -53,6 +59,13 @@ weather.
    - **Show location:** shows or hides the city.
 
 The grant lets Lannister switch these on by itself. Without it, Fire OS may hide them; use the adb grant.
+
+## Nairobi wallpaper, greeting and music widget
+
+- **Wallpaper.** With *Auto day/night wallpaper* on, Lannister shows the Day wallpaper from 06:30 and the Night wallpaper from 18:30, Nairobi time. Both pick lists are the normal wallpaper lists, so photos you add, folders and the Live sky work as before. The theme follows day and night while this is on.
+- **Photos.** The bundled "Nairobi skyline" is drawn by the app, not a photograph, and no photos are included. To use real ones, use images you own or that are licensed for this, 1920x1080, and either put `nairobi_day.jpg` and `nairobi_night.jpg` in `app/src/main/res/drawable-nodpi/` before building, or copy them with the same names into `Android/data/dev.lannister/files/wallpapers/` on the TV (no rebuild).
+- **Greeting and clock.** The greeting uses Morning 05:00-11:59, Afternoon 12:00-16:59, Evening 17:00-20:59, Night 21:00-04:59. These boundaries are fixed. The weather line is the existing one and follows its own location setting; choose Nairobi in **Weather → Location** for Nairobi weather.
+- **Music widget.** Real media session data only. It needs notification access (the adb command shown in the app, or Android's settings). Apps that publish no media session do not appear, and a button the playing app does not support is dimmed. The equalizer is decorative and not driven by the audio.
 
 ## Known unknowns (check these first)
 
