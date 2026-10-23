@@ -1579,6 +1579,7 @@ class MainActivity : Activity() {
      * single-layer icons and for photo-like layers that fill the square, which keep the greyscale look.
      */
     private fun glyph(icon: Drawable): Bitmap? {
+        if (Build.VERSION.SDK_INT < 26) return null // adaptive icons start at Android 8
         val fg = (icon as? AdaptiveIconDrawable)?.foreground ?: return null
         val size = dp(96) // large, so a small symbol is still sharp after trimming and scaling up
         val bmp = Bitmap.createBitmap(size, size, Bitmap.Config.ARGB_8888)
@@ -2511,8 +2512,10 @@ class MainActivity : Activity() {
         v.background = if (dark && card) rimCard(radius, false) else bg
         if (!dark) v.foreground = sheen
         v.clipToOutline = true
-        v.outlineSpotShadowColor = Color.BLACK
-        v.outlineAmbientShadowColor = Color.BLACK
+        if (Build.VERSION.SDK_INT >= 28) { // these two do not exist on a Fire Stick (Android 7.1)
+            v.outlineSpotShadowColor = Color.BLACK
+            v.outlineAmbientShadowColor = Color.BLACK
+        }
         v.elevation = if (card) dp(2).toFloat() else 0f
         v.isFocusable = true
         v.isClickable = true
