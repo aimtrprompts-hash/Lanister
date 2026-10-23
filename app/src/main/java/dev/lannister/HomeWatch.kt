@@ -1,6 +1,8 @@
 package dev.lannister
 
+import android.app.AlarmManager
 import android.app.Notification
+import android.app.PendingIntent
 import android.app.Service
 import android.content.BroadcastReceiver
 import android.content.Context
@@ -26,6 +28,10 @@ class HomeWatch : Service() {
     @Volatile private var alive = false
     @Volatile private var proc: Process? = null
     private var lastOpened = 0L
+    private var adbBackoffUntil = 0L // after a failed adb call, use the slow way for a while instead of waiting again
+    private val adb by lazy {
+        AdbLocal(getSharedPreferences("home", MODE_PRIVATE)) { android.util.Log.w("Lannister", it) }
+    }
 
     override fun onBind(intent: Intent?): IBinder? = null
 
@@ -48,6 +54,12 @@ class HomeWatch : Service() {
     }
 
     private fun watch() {
+        // Warm-up: the first adb call makes the TV ask "Allow USB debugging?" for Lannister. Better now, while the
+        // person is looking at the TV after switching Home on, than on a Home press. Waits up to a minute for the answer.
+        if (fastHome()) {
+            val out = adb.shell("true", 60_000)
+            if (out == null) adbBackoffUntil = SystemClock.elapsedRealtime() + 60_000
+        }
         while (alive) {
             try {
                 // Only ActivityManager's information lines, which the system writes to the "system" buffer (not "main");
@@ -58,7 +70,7 @@ class HomeWatch : Service() {
                 p.inputStream.bufferedReader().use { r ->
                     while (alive) {
                         val line = r.readLine() ?: break
-                        if (isHomeStart(line)) ui.post { goHome() }
+                        if (isHomeStart(line)) onHome()
                     }
                 }
                 p.destroy()
@@ -73,14 +85,36 @@ class HomeWatch : Service() {
     private fun isHomeStart(line: String) =
         line.contains("START") && line.contains("android.intent.category.HOME") && !line.contains("dev.lannister")
 
-    private fun goHome() {
+    private fun fastHome() = getSharedPreferences("home", MODE_PRIVATE).getBoolean("fast_home", true)
+
+    /** A home screen is starting: open Lannister over it. Runs on the watcher thread. */
+    private fun onHome() {
         val prefs = getSharedPreferences("home", MODE_PRIVATE)
         if (prefs.getBoolean("home_off", false) || HomeOverride.stockHomeAllowed) return
         val now = SystemClock.elapsedRealtime()
         if (now - lastOpened < 1200) return // our own start, or a double event
         lastOpened = now
-        // Marked as Home so the setup check can tell it from Lannister being opened from the apps list.
-        startActivity(Intent(this, MainActivity::class.java).addCategory(Intent.CATEGORY_HOME).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+        // Fast: through adb as the shell user, which Android lets start an activity right after a Home press.
+        if (fastHome() && now >= adbBackoffUntil) {
+            val out = adb.shell("am start -a android.intent.action.MAIN -c android.intent.category.HOME -n $packageName/.MainActivity")
+            if (out != null && !out.contains("Error")) return
+            adbBackoffUntil = SystemClock.elapsedRealtime() + 5 * 60_000L
+        }
+        // Slow: Android holds a background app's start back for 5 seconds after a Home press.
+        ui.post { goHome() }
+    }
+
+    // Marked as Home so the setup check can tell it from Lannister being opened from the apps list.
+    private fun goHome() {
+        val home = Intent(this, MainActivity::class.java).addCategory(Intent.CATEGORY_HOME).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        // Next best after adb: an alarm makes the system process send our intent, and the system is exempt from the
+        // 5 second hold on app starts after Home. If that is refused, start it ourselves (up to 5 seconds late).
+        try {
+            val pi = PendingIntent.getActivity(this, 0, home, PendingIntent.FLAG_UPDATE_CURRENT)
+            getSystemService(AlarmManager::class.java).setExact(AlarmManager.RTC_WAKEUP, System.currentTimeMillis() + 50, pi)
+        } catch (e: Exception) {
+            startActivity(home)
+        }
     }
 
     companion object {
