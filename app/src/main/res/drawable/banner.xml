@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="320dp"
+    android:height="180dp"
+    android:viewportWidth="32"
+    android:viewportHeight="18">
+    <path android:fillColor="#15171B" android:pathData="M0,0h32v18h-32z" />
+    <!-- A plain "L" with a gold rule under it. -->
+    <path android:fillColor="#FFFFFF" android:pathData="M12.2,3.4h2.6v8h4.8v2.4h-7.4z" />
+    <path android:fillColor="#C9A227" android:pathData="M12.2,14.9h7.4v0.7h-7.4z" />
+</vector>

@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Events only from the stock launchers: Amazon Fire TV (com.amazon.tv.launcher) and Google TV. Key events are not
+     limited by package, so the Home key is seen wherever you are. canRetrieveWindowContent stays false: the service
+     cannot read anything on screen. -->
+<accessibility-service xmlns:android="http://schemas.android.com/apk/res/android"
+    android:accessibilityEventTypes="typeWindowStateChanged"
+    android:packageNames="com.amazon.tv.launcher,com.google.android.apps.tv.launcherx"
+    android:accessibilityFeedbackType="feedbackGeneric"
+    android:notificationTimeout="0"
+    android:canRetrieveWindowContent="false"
+    android:canRequestFilterKeyEvents="true"
+    android:accessibilityFlags="flagRequestFilterKeyEvents"
+    android:description="@string/override_desc" />

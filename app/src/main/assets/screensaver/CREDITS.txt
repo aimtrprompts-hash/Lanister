@@ -1,0 +1,19 @@
+Photo credits (Unsplash License - https://unsplash.com/license)
+These launcher wallpapers come from the CleanFrame project's bundled gallery
+(https://github.com/nthnclrk/CleanFrame, docs/asset-sources.md). Keep these credits with redistributions.
+
+misty-coast       Ganapathy Kumar       https://unsplash.com/photos/n4VMQZIkgDg
+quiet-cove        Joshua Wordel         https://unsplash.com/photos/1L_5PT7EKzU
+forest-mist       Dejan Zakic           https://unsplash.com/photos/rr2EF3J5F2Y
+mountain-valley   Aniket Deole          https://unsplash.com/photos/M6XC789HLe8
+desert-stars      Mohammad Alizade      https://unsplash.com/photos/4wzRuAb-KWs
+blue-peaks        John Rodenn Castillo  https://unsplash.com/photos/rQqWOHZ96OM
+bridge-at-dusk    Justin Wolff          https://unsplash.com/photos/pbp_Ww2cewA
+sunlit-ridges     Cristina Gottardi     https://unsplash.com/photos/wndpWTiDuT0
+golden-hour       Karthik Sreenivas     https://unsplash.com/photos/tmtkhWbgMu8
+sunlit-summits    Rudra Gupta           https://unsplash.com/photos/PuTSzJJ-qyU
+gold-coast-dusk   City of Gold Coast    https://unsplash.com/photos/YiaGblobOGI
+sydney-harbour    Caleb                 https://unsplash.com/photos/JmuyB_LibRo
+amber-hills       Chris Barbalis        https://unsplash.com/photos/vazZtmYFgFY
+mint-wave         MagicPattern          https://unsplash.com/photos/87PP9Zd7MNo
+alpine-glow       Cristina Gottardi     https://unsplash.com/photos/CSpjU6hYo_0
