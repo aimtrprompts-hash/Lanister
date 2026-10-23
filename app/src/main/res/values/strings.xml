@@ -18,6 +18,8 @@
     <string name="wp_rockies_dusk">Rockies (dusk)</string>
     <string name="wp_pure_black">Pure black</string>
     <string name="wp_live_sky">Live sky</string>
+    <string name="amazon_home">Open Amazon home screen</string>
+    <string name="cant_open_amazon_home">The Amazon home screen did not open</string>
     <string name="sky_speed">Sky speed</string>
     <string name="sky_real">Real time</string>
     <string name="sky_fast">Fast (a day in 2 minutes)</string>
@@ -171,7 +173,7 @@
     <string name="setup_scan_help">Step-by-step help</string>
     <string name="setup_done_title">Home is set</string>
     <string name="setup_done_body">Home on your remote now opens Lannister.</string>
-    <string name="setup_done_body_service">Home on your remote now opens Lannister. Hold Home for the Amazon or Google TV home screen.</string>
+    <string name="setup_done_body_service">Home on your remote now opens Lannister. To see the Amazon or Google TV home screen, use Lannister settings → Open Amazon home screen.</string>
     <string name="setup_continue">Continue</string>
     <string name="setup_not_now">Not now</string>
     <string name="setup_skip_check">Skip this check</string>

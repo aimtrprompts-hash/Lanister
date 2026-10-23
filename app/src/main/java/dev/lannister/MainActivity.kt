@@ -285,6 +285,7 @@ class MainActivity : Activity() {
     override fun onResume() {
         super.onResume()
         ensureHomeService()
+        HomeWatch.start(this) // Fire TV: reads the system log for Home presses (needs the adb grant of READ_LOGS)
         homeSetupResumed()
         if (wantDark() != dark) {
             recreate()
@@ -378,11 +379,15 @@ class MainActivity : Activity() {
             .split(':').any { ComponentName.unflattenFromString(it) == me }
     }
 
-    private fun toggleHomeButton() = if (homeServiceOn()) turnOffHomeButton() else turnOnHomeButton()
+    /** The Fire TV way: the home watcher is allowed to run (READ_LOGS granted) and not switched off. */
+    private fun homeWatchOn() = HomeWatch.granted(this) && !prefs.getBoolean("home_off", false)
+
+    private fun toggleHomeButton() = if (homeServiceOn() || homeWatchOn()) turnOffHomeButton() else turnOnHomeButton()
 
     /** Off hands Home back to the TV's own launcher, and Lannister leaves it off until switched on again. */
     private fun turnOffHomeButton() {
         prefs.edit().putBoolean("home_off", true).apply()
+        HomeWatch.stop(this)
         HomeOverride.running?.disableSelf()
         if (homeServiceOn() && checkSelfPermission(WRITE_SECURE) == PackageManager.PERMISSION_GRANTED) {
             val me = ComponentName(this, HomeOverride::class.java)
@@ -401,7 +406,8 @@ class MainActivity : Activity() {
     private fun turnOnHomeButton() {
         prefs.edit().remove("home_off").apply()
         ensureHomeService() // works where the adb permission was granted
-        if (homeServiceOn()) return renderSettings(R.string.home_button)
+        HomeWatch.start(this)
+        if (homeServiceOn() || homeWatchOn()) return renderSettings(R.string.home_button)
         // The written path is the safety net: some Google TVs (a Xiaomi stick) answer the Accessibility link
         // with "You don't have an app that can do this", which we can't detect from here.
         Toast.makeText(this, getString(R.string.home_on_hint), Toast.LENGTH_LONG).show()
@@ -468,14 +474,15 @@ class MainActivity : Activity() {
     private fun tryHomeService() {
         prefs.edit().remove("home_off").apply()
         ensureHomeService() // works where the adb permission was granted
-        if (homeServiceOn()) testPopup(2) else servicePopup()
+        HomeWatch.start(this)
+        if (homeServiceOn() || homeWatchOn()) testPopup(2) else servicePopup()
     }
 
     /** Back from the role dialog, Accessibility settings, or another home screen after a Home press. */
     private fun homeSetupResumed() {
         if (setupStep == 2) {
             setupStep = 0
-            if (homeServiceOn()) testPopup(2) else adbPopup()
+            if (homeServiceOn() || homeWatchOn()) testPopup(2) else adbPopup()
         } else if (homeTest != 0 && leftDuringTest) {
             val failed = homeTest
             homeTest = 0
@@ -520,7 +527,8 @@ class MainActivity : Activity() {
                 cornerRadius = dp(10).toFloat()
                 setColor(if (dark) DARK_BG else 0xFFE9EBEF.toInt())
             }
-            listOfNotNull(lanAddress()?.let { "adb connect $it:5555" }, "adb shell pm grant $packageName $WRITE_SECURE").forEach {
+            listOfNotNull(lanAddress()?.let { "adb connect $it:5555" }, "adb shell pm grant $packageName $WRITE_SECURE",
+                "adb shell pm grant $packageName ${HomeWatch.READ_LOGS}").forEach {
                 addView(label(it, 12f).apply { typeface = mono; maxLines = 2; ellipsize = null; setPadding(0, dp(2), 0, dp(2)) })
             }
         }
@@ -1048,7 +1056,16 @@ class MainActivity : Activity() {
             R.string.test_screensaver to Triple(getString(R.string.test_screensaver), "") { testScreensaver() },
             R.string.screensaver_timing to Triple(getString(R.string.screensaver_timing), "") { openScreensaverSettings() },
             R.string.setup_home to Triple(getString(R.string.setup_home), "") { closeLauncherSettings(); startHomeSetup() },
-            R.string.home_button to Triple(getString(R.string.home_button), toggle(homeServiceOn())) { toggleHomeButton() },
+            R.string.home_button to Triple(getString(R.string.home_button), toggle(homeServiceOn() || homeWatchOn())) { toggleHomeButton() },
+            R.string.amazon_home to Triple(getString(R.string.amazon_home), "") {
+                // The Home watcher and service leave the Amazon home alone until Lannister is on screen again.
+                HomeOverride.stockHomeAllowed = true
+                try {
+                    startActivity(Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_HOME).setPackage(HomeOverride.AMAZON_HOME).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+                } catch (e: Exception) {
+                    Toast.makeText(this, getString(R.string.cant_open_amazon_home), Toast.LENGTH_SHORT).show()
+                }
+            },
             R.string.default_launcher to Triple(getString(R.string.default_launcher), if (isDefaultHome()) getString(R.string.lannister_press_change) else getString(R.string.press_to_set)) { makeDefaultHome() },
             R.string.sky_speed to Triple(getString(R.string.sky_speed), getString(if (prefs.getBoolean("sky_fast", false)) R.string.sky_fast else R.string.sky_real)) {
                 prefs.edit().putBoolean("sky_fast", !prefs.getBoolean("sky_fast", false)).apply()
@@ -1077,7 +1094,7 @@ class MainActivity : Activity() {
             Triple(R.string.section_weather, if (weather == "off") on(false) else "${rows[R.string.weather_units]!!.second} · ${rows[R.string.weather_location]!!.second}",
                 listOf(R.string.weather, R.string.weather_units, R.string.weather_location)),
             Triple(R.string.section_screensaver, rows[R.string.screensaver]!!.second, listOf(R.string.screensaver, R.string.now_playing, R.string.show_location, R.string.test_screensaver, R.string.screensaver_timing)),
-            Triple(R.string.section_home, on(homeServiceOn() || isDefaultHome()), listOfNotNull(R.string.setup_home, R.string.home_button, if (Build.VERSION.SDK_INT >= 29) R.string.default_launcher else null)),
+            Triple(R.string.section_home, on(homeServiceOn() || homeWatchOn() || isDefaultHome()), listOfNotNull(R.string.setup_home, R.string.home_button, R.string.amazon_home, if (Build.VERSION.SDK_INT >= 29) R.string.default_launcher else null)),
         )
         val section = sections.firstOrNull { at in it.third }
         if (section != null) {

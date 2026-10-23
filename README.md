@@ -14,8 +14,10 @@ its features. Licence: GPL-3.0 (see `LICENSE` and `NOTICE.md`).
 - **Live sky:** an animated day-and-night sky, as the home-screen wallpaper (*Light/Dark wallpaper → Live sky*) and as a
   screensaver. It follows your real sunrise and sunset and shows live weather: clouds, rain, snow, fog, storms.
   *Sky speed → Fast* plays a whole day in two minutes. It is drawn with code, so it adds no image size.
-- **Replaces the Amazon home screen:** an accessibility service takes the Home button, and covers the Amazon launcher
-  if it still appears. Hold Home to open the Amazon home on purpose.
+- **Replaces the Amazon home screen:** Fire OS 6 does not let apps take the Home key, so Lannister watches the system
+  log for the line Fire OS writes when it starts the Amazon home screen, and opens Lannister over it (the same method as
+  the Launcher Manager app). The Amazon home screen may flash for a moment first. To see the Amazon home on purpose, use
+  *Lannister settings → Open Amazon home screen*. The older accessibility-service route is kept for other devices.
 - **Fire OS 6 support:** minSdk 25, screen-size fit, apps found under both launcher categories, no features that need
   Android 8 or newer (Continue Watching and HDMI tiles stay empty on a Fire Stick).
 - No self-update, no paintings download, no network use except weather, poster images and the location lookup.
@@ -39,7 +41,10 @@ weather.
    ```sh
    adb connect <fire-tv-ip>:5555
    adb shell pm grant dev.lannister android.permission.WRITE_SECURE_SETTINGS
+   adb shell pm grant dev.lannister android.permission.READ_LOGS
    ```
+
+   Then force-stop and reopen Lannister (`adb shell am force-stop dev.lannister`, then open it), so it picks up READ_LOGS.
 
 4. Open Lannister, then in **Lannister settings**:
    - **Home button:** turns on the Home service. Press Home to test it.
@@ -51,8 +56,8 @@ The grant lets Lannister switch these on by itself. Without it, Fire OS may hide
 
 ## Known unknowns (check these first)
 
-- Whether Fire OS 6 lets the accessibility service see the Home key. If Home still opens Amazon's screen, the second
-  layer reopens Lannister when the Amazon launcher appears. If both fail, Amazon blocks it on your software version.
+- Whether the log line Lannister watches for looks the same on your software version. If Home still opens only Amazon's
+  screen after the READ_LOGS grant, send the output of `adb logcat -d | grep category.HOME | tail`.
 - Whether Fire OS accepts the screensaver component through the adb grant on your build.
 - Amazon can change launcher behaviour in any update.
 - The Live sky animation (about 30 frames a second) is untested on a Fire Stick 4K; if it stutters, tell me and I will lower the detail.
