@@ -50,8 +50,9 @@ class HomeWatch : Service() {
     private fun watch() {
         while (alive) {
             try {
-                // Only ActivityManager's information lines; -T 1 starts at the newest line, so old Home presses do not replay.
-                val p = ProcessBuilder("logcat", "-v", "brief", "-b", "main", "-T", "1", "ActivityManager:I", "*:S")
+                // Only ActivityManager's information lines, which the system writes to the "system" buffer (not "main");
+                // -T 1 starts at the newest line, so old Home presses do not replay.
+                val p = ProcessBuilder("logcat", "-v", "brief", "-b", "system", "-T", "1", "ActivityManager:I", "*:S")
                     .redirectErrorStream(true).start()
                 proc = p
                 p.inputStream.bufferedReader().use { r ->
